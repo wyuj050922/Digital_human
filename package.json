@@ -1,0 +1,82 @@
+{
+  "name": "xiaoyu-digital-human",
+  "private": true,
+  "version": "0.1.0",
+  "description": "小宇数字人——AI数字人口播视频制作软件",
+  "main": "electron/main.cjs",
+  "author": "吴宇杰",
+  "type": "module",
+  "scripts": {
+    "prepare:ffmpeg": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-ffmpeg.ps1",
+    "predev": "npm run prepare:ffmpeg",
+    "dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
+    "build:web": "tsc -b && vite build",
+    "prestart": "npm run prepare:ffmpeg",
+    "start": "electron .",
+    "predist:installer": "npm run prepare:ffmpeg",
+    "dist:installer": "npm run build:web && electron-builder --win nsis",
+    "predist:portable": "npm run prepare:ffmpeg",
+    "dist:portable": "npm run build:web && electron-builder --win portable"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "latest",
+    "cross-env": "latest",
+    "dotenv": "latest",
+    "vite": "latest",
+    "typescript": "latest",
+    "react": "latest",
+    "react-dom": "latest"
+  },
+  "devDependencies": {
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "concurrently": "latest",
+    "electron": "latest",
+    "electron-builder": "latest",
+    "wait-on": "latest"
+  },
+  "build": {
+    "appId": "com.xiaoyu.digitalhuman",
+    "productName": "小宇数字人",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "resources/branding/xiaoyu-icon.png",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/bin/ffmpeg.exe",
+        "to": "bin/ffmpeg.exe"
+      },
+      {
+        "from": "THIRD_PARTY_NOTICES.md",
+        "to": "THIRD_PARTY_NOTICES.md"
+      }
+    ],
+    "asar": true,
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "小宇数字人",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "artifactName": "小宇数字人安装程序-${version}-${arch}.${ext}"
+    },
+    "portable": {
+      "artifactName": "小宇数字人便携版-${version}-${arch}.${ext}"
+    }
+  }
+}

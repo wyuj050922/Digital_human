@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+
+# Build output and caches
+dist/
+release/
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
+.vite/
+coverage/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+final-frame.png
+
+# Local/generated media used during development
+public/assets/avatar.jpg
+public/assets/speech.wav
+public/assets/final.mp4
+outputs/
+
+# FFmpeg is downloaded locally by scripts/prepare-ffmpeg.ps1
+resources/bin/ffmpeg.exe
+
+# Editor and operating-system files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
