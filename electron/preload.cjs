@@ -4,6 +4,7 @@ contextBridge.exposeInMainWorld('xiaoyu', {
   generateText: (payload) => ipcRenderer.invoke('deepseek:generate-text', payload),
   generateCharacter: (payload) => ipcRenderer.invoke('deepseek:generate-character', payload),
   generateImage: (payload) => ipcRenderer.invoke('ark:generate-image', payload),
+  selectCustomImage: () => ipcRenderer.invoke('file:select-custom-image'),
   generateAudio: (payload) => ipcRenderer.invoke('mimo:generate-audio', payload),
   previewVoice: (payload) => ipcRenderer.invoke('mimo:preview-voice', payload),
   generateVideo: (payload) => ipcRenderer.invoke('video:generate', payload),

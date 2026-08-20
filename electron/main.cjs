@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, safeStorage, shell, protocol } = require('electron')
+const { app, BrowserWindow, ipcMain, safeStorage, shell, protocol, dialog } = require('electron')
 const path = require('node:path')
 const fs = require('node:fs')
 const { spawn } = require('node:child_process')
@@ -105,7 +105,34 @@ function mediaType(filePath) {
   if (extension === '.wav') return 'audio/wav'
   if (extension === '.mp3') return 'audio/mpeg'
   if (extension === '.png') return 'image/png'
+  if (extension === '.jpg' || extension === '.jpeg') return 'image/jpeg'
+  if (extension === '.webp') return 'image/webp'
   return 'application/octet-stream'
+}
+
+async function selectCustomImage() {
+  const result = await dialog.showOpenDialog({
+    title: '选择人物照片',
+    properties: ['openFile'],
+    filters: [{ name: '人物照片', extensions: ['jpg', 'jpeg', 'png', 'webp'] }],
+  })
+  if (result.canceled || !result.filePaths[0]) return null
+
+  const sourcePath = result.filePaths[0]
+  const extension = path.extname(sourcePath).toLowerCase()
+  if (!['.jpg', '.jpeg', '.png', '.webp'].includes(extension)) throw new Error('请选择 JPG、PNG 或 WebP 格式的照片')
+  const stats = await fs.promises.stat(sourcePath)
+  if (!stats.isFile() || stats.size <= 0) throw new Error('所选照片无效或内容为空')
+  if (stats.size > 20 * 1024 * 1024) throw new Error('照片不能超过20MB，请压缩后重试')
+
+  const targetPath = uniqueFile('自定义人物照片', extension.slice(1) === 'jpeg' ? 'jpg' : extension.slice(1))
+  await fs.promises.copyFile(sourcePath, targetPath)
+  return {
+    previewUrl: previewUrlFor(targetPath),
+    filePath: targetPath,
+    fileName: path.basename(sourcePath),
+    size: stats.size,
+  }
 }
 
 function streamMediaResponse(request, filePath) {
@@ -491,23 +518,47 @@ async function finalizeSyncedVideo(videoUrl, script, duration, subtitles, event,
   return finalPath
 }
 
+async function createStillVideo(imageFilePath, event, resolution = '1080p') {
+  if (!imageFilePath || !fs.existsSync(imageFilePath)) throw new Error('自己的照片不存在，请重新选择')
+  const extension = path.extname(imageFilePath).toLowerCase()
+  if (!['.jpg', '.jpeg', '.png', '.webp'].includes(extension)) throw new Error('自己的照片格式不受支持，请重新选择')
+  const dimensions = resolution === '720p' ? '720:1280' : '1080:1920'
+  const targetPath = uniqueFile('自定义人物待机视频', 'mp4')
+  sendProgress(event, '正在准备自己的照片', 10)
+  await runFfmpeg([
+    '-y', '-loop', '1', '-i', imageFilePath, '-t', '5',
+    '-vf', `scale=${dimensions}:force_original_aspect_ratio=increase,crop=${dimensions},format=yuv420p`,
+    '-r', '25', '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-movflags', '+faststart', targetPath,
+  ])
+  sendProgress(event, '自己的照片已准备完成', 38)
+  return { filePath: targetPath }
+}
+
 async function generateVideo(payload, event) {
+  const imageMode = payload?.imageMode === 'upload' ? 'upload' : 'ai'
   const imageSourceUrl = String(payload?.imageSourceUrl || '')
+  const imageFilePath = String(payload?.imageFilePath || '')
   const audioFilePath = String(payload?.audioFilePath || '')
   const script = String(payload?.script || '').trim()
   const audioDuration = Number(payload?.audioDuration || 0)
   const subtitles = payload?.subtitles !== false
   const resolution = payload?.resolution === '720p' ? '720p' : '1080p'
-  if (!/^https:\/\//i.test(imageSourceUrl)) throw new Error('人物图片地址已失效，请重新生成人物图片')
+  if (imageMode === 'ai' && !/^https:\/\//i.test(imageSourceUrl)) throw new Error('人物图片地址已失效，请重新生成人物图片')
+  if (imageMode === 'upload' && (!imageFilePath || !fs.existsSync(imageFilePath))) throw new Error('自己的照片不存在，请重新选择')
   if (!audioFilePath || !fs.existsSync(audioFilePath)) throw new Error('语音文件不存在，请重新生成语音')
   if (!script || audioDuration <= 0) throw new Error('视频参数不完整，请重新确认文案与语音')
 
   sendProgress(event, '准备生成资源', 6)
   const [audioUrl, idle] = await Promise.all([
     uploadDashScopeFile(audioFilePath, 'videoretalk'),
-    createIdleVideo(imageSourceUrl, event, resolution),
+    imageMode === 'upload' ? createStillVideo(imageFilePath, event, resolution) : createIdleVideo(imageSourceUrl, event, resolution),
   ])
-  const synced = await createLipSyncVideo(idle.url, audioUrl, audioDuration, event)
+  let idleUrl = idle.url
+  if (imageMode === 'upload') {
+    sendProgress(event, '正在上传人物素材', 42)
+    idleUrl = await uploadDashScopeFile(idle.filePath, 'videoretalk')
+  }
+  const synced = await createLipSyncVideo(idleUrl, audioUrl, audioDuration, event)
   const finalPath = await finalizeSyncedVideo(synced.url, script, synced.duration || audioDuration, subtitles, event, resolution)
   return { previewUrl: previewUrlFor(finalPath), filePath: finalPath, duration: synced.duration || audioDuration }
 }
@@ -694,6 +745,7 @@ app.whenReady().then(() => {
   ipcMain.handle('deepseek:generate-text', (_event, payload) => generateText(payload))
   ipcMain.handle('deepseek:generate-character', (_event, payload) => generateCharacter(payload))
   ipcMain.handle('ark:generate-image', (_event, payload) => generateImage(payload))
+  ipcMain.handle('file:select-custom-image', () => selectCustomImage())
   ipcMain.handle('mimo:generate-audio', (_event, payload) => generateAudio(payload))
   ipcMain.handle('mimo:preview-voice', (_event, payload) => previewVoice(payload))
   ipcMain.handle('video:generate', (event, payload) => generateVideo(payload, event))

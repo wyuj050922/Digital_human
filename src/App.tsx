@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 type StepState = 'pending' | 'ready' | 'working' | 'done'
 type Gender = '女性' | '男性' | '不限定'
+type ImageMode = 'ai' | 'upload'
 
 const scripts = [
   '想报考平顶山学院吗？这里山水环绕，四季皆景，书香浓郁，师资力量强，就业前景广。来这儿，遇见更好的自己，开启精彩未来，你心动了吗？',
@@ -36,12 +37,18 @@ function App() {
   const [style, setStyle] = useState('校园介绍')
   const [scriptState, setScriptState] = useState<StepState>('ready')
   const [gender, setGender] = useState<Gender>('女性')
+  const [imageMode, setImageMode] = useState<ImageMode>('ai')
   const [description, setDescription] = useState(descriptions.女性)
   const [descriptionLoading, setDescriptionLoading] = useState(false)
   const [imageError, setImageError] = useState('')
   const [imagePreview, setImagePreview] = useState('')
   const [imageZoomOpen, setImageZoomOpen] = useState(false)
   const [imageSourceUrl, setImageSourceUrl] = useState('')
+  const [imageFilePath, setImageFilePath] = useState('')
+  const [customImageName, setCustomImageName] = useState('')
+  const [customImageSize, setCustomImageSize] = useState(0)
+  const [customImageDimensions, setCustomImageDimensions] = useState('')
+  const [photoConsent, setPhotoConsent] = useState(false)
   const [modifyNote, setModifyNote] = useState('')
   const [imageState, setImageState] = useState<StepState>('pending')
   const [imageProgress, setImageProgress] = useState(0)
@@ -137,6 +144,11 @@ function App() {
   const confirmScript = async () => {
     setScriptState('done')
     setImageState('ready')
+    if (imageMode === 'upload') {
+      setDescriptionLoading(false)
+      setImageError('')
+      return
+    }
     setDescriptionLoading(true)
     setImageError('')
     try {
@@ -152,11 +164,27 @@ function App() {
   }
 
   const changeGender = (next: Gender) => {
-    resetAfterImageEdit()
     setGender(next)
     setSelectedVoice(next === '男性' ? 2 : 0)
+    if (imageMode === 'upload') {
+      setAudioConfirmed(false)
+      setAudioState(imageState === 'done' ? 'ready' : 'pending')
+      resetAfterAudioSettings()
+      return
+    }
+    resetAfterImageEdit()
     setDescription(descriptions[next])
     setImageState('ready')
+  }
+
+  const changeImageMode = (next: ImageMode) => {
+    if (next === imageMode) return
+    resetAfterImageEdit()
+    setImageMode(next)
+    setImageState('ready')
+    setImageProgress(0)
+    setImageError('')
+    if (next === 'ai') setDescription(descriptions[gender])
   }
 
   const generateImage = async () => {
@@ -170,6 +198,7 @@ function App() {
       const result = await window.xiaoyu.generateImage({ description, modifyNote })
       setImagePreview(result.previewUrl)
       setImageSourceUrl(result.sourceUrl)
+      setImageFilePath(result.filePath)
       setImageProgress(100)
       setImageState('done')
       setAudioState('ready')
@@ -180,6 +209,36 @@ function App() {
     } finally {
       timers.forEach(window.clearTimeout)
     }
+  }
+
+  const selectCustomPhoto = async () => {
+    setImageError('')
+    try {
+      if (!window.xiaoyu) throw new Error('桌面安全服务未连接')
+      const result = await window.xiaoyu.selectCustomImage()
+      if (!result) return
+      resetAfterImageEdit()
+      setImageState('working')
+      setImageProgress(55)
+      setImagePreview(result.previewUrl)
+      setImageFilePath(result.filePath)
+      setCustomImageName(result.fileName)
+      setCustomImageSize(result.size)
+      setImageProgress(100)
+      setImageState('done')
+      setAudioState('ready')
+    } catch (error) {
+      setImageError(error instanceof Error ? error.message.replace(/^Error invoking remote method '[^']+': Error: /, '') : '照片读取失败')
+      setImageProgress(0)
+      setImageState('ready')
+    }
+  }
+
+  const removeCustomPhoto = () => {
+    resetAfterImageEdit()
+    setImageState('ready')
+    setImageProgress(0)
+    setImageError('')
   }
 
   const regenerateDescription = async () => {
@@ -264,7 +323,7 @@ function App() {
     setVideoError('')
     try {
       if (!window.xiaoyu) throw new Error('桌面安全服务未连接')
-      const result = await window.xiaoyu.generateVideo({ imageSourceUrl, audioFilePath, script, audioDuration: actualAudioDuration, subtitles, resolution })
+      const result = await window.xiaoyu.generateVideo({ imageMode, imageSourceUrl, imageFilePath, audioFilePath, script, audioDuration: actualAudioDuration, subtitles, resolution })
       setFinalVideoPreview(result.previewUrl)
       setFinalVideoPath(result.filePath)
       videoProgressTarget.current = 100
@@ -288,6 +347,12 @@ function App() {
 
   const resetAfterImageEdit = () => {
     setImageSourceUrl('')
+    setImageFilePath('')
+    setImagePreview('')
+    setCustomImageName('')
+    setCustomImageSize(0)
+    setCustomImageDimensions('')
+    setImageZoomOpen(false)
     setAudioState('pending')
     setAudioProgress(0)
     setAudioConfirmed(false)
@@ -351,15 +416,26 @@ function App() {
             </article>
 
             <article className={`panel ${scriptState !== 'done' ? 'locked' : ''} ${imageState === 'done' ? 'completed' : ''}`}>
-              <PanelHead number="02" title="人物形象" subtitle="AI先生成描述，由你确认后再生成图片" state={imageState} />
+              <PanelHead number="02" title="人物形象" subtitle="可以AI生成人物，也可以上传自己的照片" state={imageState} />
               <div className="panel-body">
+                <label className="field-label">人物图片来源</label>
+                <div className="mode-grid image-source-grid">
+                  <Choice selected={imageMode === 'ai'} onClick={() => changeImageMode('ai')} title="AI 生成人物" desc="根据口播内容设计并生成人物图片" />
+                  <Choice selected={imageMode === 'upload'} onClick={() => changeImageMode('upload')} title="上传自己的照片" desc="使用本人或已获得授权的人物照片" />
+                </div>
                 <label className="field-label">人物性别</label><div className="pills">{(['女性', '男性', '不限定'] as Gender[]).map(item => <button className={gender === item ? 'selected' : ''} onClick={() => changeGender(item)} key={item}>{item}</button>)}</div>
-                <div className="section-line"><label className="field-label">AI 人物描述</label><button className="text-button" onClick={regenerateDescription} disabled={descriptionLoading}>✦ {descriptionLoading ? '正在生成描述…' : 'AI重新生成描述'}</button></div>
-                <textarea className="description-box" value={description} onChange={e => { resetAfterImageEdit(); setImageState('ready'); setDescription(e.target.value) }} />
+                {imageMode === 'ai' ? <>
+                  <div className="section-line"><label className="field-label">AI 人物描述</label><button className="text-button" onClick={regenerateDescription} disabled={descriptionLoading}>✦ {descriptionLoading ? '正在生成描述…' : 'AI重新生成描述'}</button></div>
+                  <textarea className="description-box" value={description} onChange={e => { resetAfterImageEdit(); setImageState('ready'); setDescription(e.target.value) }} />
+                  <label className="field-label">重点修改要求（可选）</label><input className="input" value={modifyNote} onChange={e => setModifyNote(e.target.value)} placeholder="例如：发型更短一些，背景换成教学楼前" />
+                </> : <div className="photo-upload-box">
+                  <div className="photo-guidance"><b>选择适合数字人口播的照片</b><span>建议使用正脸、五官无遮挡、光线均匀的上半身照片；系统会自动裁切为竖屏画面。</span><span>支持 JPG、PNG、WebP，文件大小不超过 20MB。</span></div>
+                  <label className="photo-consent"><input type="checkbox" checked={photoConsent} onChange={event => setPhotoConsent(event.target.checked)} /><span>我确认这是本人照片，或已获得照片人物的使用授权，并同意发送至第三方模型处理。</span></label>
+                  {imageState !== 'done' && <div className="actions photo-actions"><button className="primary" onClick={() => void selectCustomPhoto()} disabled={!photoConsent || imageState === 'working'}>{imageState === 'working' ? '正在读取照片…' : '选择本地照片'}</button></div>}
+                </div>}
                 {imageError && <div className="inline-error">⚠ {imageError}</div>}
-                <label className="field-label">重点修改要求（可选）</label><input className="input" value={modifyNote} onChange={e => setModifyNote(e.target.value)} placeholder="例如：发型更短一些，背景换成教学楼前" />
-                {imageState === 'working' && <Progress label="正在生成人物图片" value={imageProgress} />}
-                {imageState === 'done' ? <div className="image-result"><button className="image-thumb" onClick={() => setImageZoomOpen(true)} title="点击放大查看"><img src={imagePreview} alt="生成的人物形象" /><span>⌕</span></button><div><b>AI人物形象</b><span>已生成 · 竖屏 9:16 · 可点击放大</span><div className="image-actions"><button className="secondary" onClick={() => setImageZoomOpen(true)}>放大查看</button><button className="secondary" onClick={generateImage}>重新生成图片</button></div></div></div> : <div className="actions"><button className="primary" onClick={generateImage} disabled={imageState === 'working' || descriptionLoading}>{imageState === 'working' ? '正在生成…' : '生成人物图片'}</button></div>}
+                {imageState === 'working' && <Progress label={imageMode === 'ai' ? '正在生成人物图片' : '正在读取自己的照片'} value={imageProgress} />}
+                {imageState === 'done' ? <div className="image-result"><button className="image-thumb" onClick={() => setImageZoomOpen(true)} title="点击放大查看"><img src={imagePreview} alt={imageMode === 'ai' ? '生成的人物形象' : '自己上传的人物照片'} onLoad={event => { if (imageMode === 'upload') setCustomImageDimensions(`${event.currentTarget.naturalWidth} × ${event.currentTarget.naturalHeight}`) }} /><span>⌕</span></button><div><b>{imageMode === 'ai' ? 'AI人物形象' : '自己的照片'}</b><span>{imageMode === 'ai' ? '已生成 · 竖屏 9:16 · 可点击放大' : `${customImageName} · ${customImageDimensions || '正在读取尺寸'} · ${(customImageSize / 1024 / 1024).toFixed(2)}MB`}</span><div className="image-actions"><button className="secondary" onClick={() => setImageZoomOpen(true)}>放大查看</button>{imageMode === 'ai' ? <button className="secondary" onClick={generateImage}>重新生成图片</button> : <><button className="secondary" onClick={() => void selectCustomPhoto()} disabled={!photoConsent}>更换照片</button><button className="secondary danger" onClick={removeCustomPhoto}>移除照片</button></>}</div></div></div> : imageMode === 'ai' && <div className="actions"><button className="primary" onClick={generateImage} disabled={imageState === 'working' || descriptionLoading}>{imageState === 'working' ? '正在生成…' : '生成人物图片'}</button></div>}
               </div>
             </article>
 
@@ -387,7 +463,7 @@ function App() {
                   <div className="setting-row"><span>输出分辨率</span><select className="resolution-select" value={resolution} disabled={videoState === 'working'} onChange={event => { if (videoState === 'done') { setVideoState('ready'); setFinalVideoPreview(''); setFinalVideoPath('') } setResolution(event.target.value as '1080p' | '720p') }}><option value="1080p">高清 1080 × 1920</option><option value="720p">流畅 720 × 1280</option></select></div>
                   {videoState === 'working' && <Progress label={videoStage} value={videoProgress} />}
                   {videoError && <div className="inline-error">⚠ {videoError}</div>}
-                  <div className="stage-list">{['准备人物素材', '生成自然动作', '同步人物口型', '添加字幕', '导出视频'].map((stage, index) => <div className={videoProgress >= [12,34,62,84,96][index] ? 'active' : ''} key={stage}><span>{videoProgress >= [12,34,62,84,96][index] ? '✓' : index + 1}</span>{stage}</div>)}</div>
+                  <div className="stage-list">{['准备人物素材', imageMode === 'upload' ? '准备照片视频' : '生成自然动作', '同步人物口型', '添加字幕', '导出视频'].map((stage, index) => <div className={videoProgress >= [12,34,62,84,96][index] ? 'active' : ''} key={stage}><span>{videoProgress >= [12,34,62,84,96][index] ? '✓' : index + 1}</span>{stage}</div>)}</div>
                   <button className="primary full" onClick={generateVideo} disabled={videoState === 'working'}>{videoState === 'done' ? '重新生成最终视频' : videoState === 'working' ? `${videoStage} ${videoProgress}%` : '生成最终视频'}</button>
                   {videoState === 'done' && <button className="secondary full" onClick={() => void window.xiaoyu?.showInFolder(finalVideoPath)}>在文件夹中查看成片</button>}
                 </div>
@@ -399,7 +475,7 @@ function App() {
             <h3>本次任务</h3><p>创建于刚刚</p>
             <SummaryRow label="目标时长" value={`${target}秒`} state="blue" />
             <SummaryRow label="文案" value={scriptState === 'done' ? '已确认' : '待确认'} state={scriptState === 'done' ? 'green' : 'orange'} />
-            <SummaryRow label="人物" value={imageState === 'done' ? '已生成' : imageState === 'working' ? `${imageProgress}%` : '未生成'} state={imageState === 'done' ? 'green' : 'gray'} />
+            <SummaryRow label="人物" value={imageState === 'done' ? imageMode === 'upload' ? '已上传照片' : '已生成' : imageState === 'working' ? `${imageProgress}%` : '未准备'} state={imageState === 'done' ? 'green' : 'gray'} />
             <SummaryRow label="语音" value={audioConfirmed ? '已确认' : audioState === 'done' ? '待确认' : '未生成'} state={audioConfirmed ? 'green' : 'gray'} />
             <SummaryRow label="成片" value={videoState === 'done' ? '已完成' : videoState === 'working' ? `${videoProgress}%` : '未生成'} state={videoState === 'done' ? 'green' : 'gray'} />
             <div className="summary-note">ⓘ 生成过程将实时显示状态与耗时。修改上一步内容后，需要重新确认后续结果。</div>
