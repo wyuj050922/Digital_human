@@ -1,7 +1,7 @@
 {
   "name": "xiaoyu-digital-human",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "小宇数字人——AI数字人口播视频制作软件",
   "main": "electron/main.cjs",
   "author": "吴宇杰",
